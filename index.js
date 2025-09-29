@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, SlashCommandBuilder, REST, Routes, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, SlashCommandBuilder, REST, Routes, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
@@ -9,48 +9,14 @@ const OWNER_ID = '1017206528928923648';
 const ANNOUNCEMENT_CHANNEL_ID = '1414421793393082461';
 const DEV_LOG_CHANNEL_ID = '1414044553312468992';
 
-// Store pending announcements and sent announcements
-const pendingAnnouncements = new Map();
-const sentAnnouncements = new Map();
+// Store announcements with message IDs as keys
+const announcementsByMessageId = new Map();
 
-// Register slash command
+// Register slash command (simplified - just opens modal)
 const commands = [
     new SlashCommandBuilder()
         .setName('announcement')
         .setDescription('Create a multilingual announcement (Owner Only)')
-        .addStringOption(option =>
-            option.setName('title_en')
-                .setDescription('Announcement title in English')
-                .setRequired(true))
-        .addStringOption(option =>
-            option.setName('description_en')
-                .setDescription('Announcement description in English')
-                .setRequired(true))
-        .addStringOption(option =>
-            option.setName('title_de')
-                .setDescription('Announcement title in German')
-                .setRequired(true))
-        .addStringOption(option =>
-            option.setName('description_de')
-                .setDescription('Announcement description in German')
-                .setRequired(true))
-        .addStringOption(option =>
-            option.setName('title_fr')
-                .setDescription('Announcement title in French')
-                .setRequired(true))
-        .addStringOption(option =>
-            option.setName('description_fr')
-                .setDescription('Announcement description in French')
-                .setRequired(true))
-        .addStringOption(option =>
-            option.setName('ping_type')
-                .setDescription('Choose ping type')
-                .setRequired(true)
-                .addChoices(
-                    { name: '@everyone', value: 'everyone' },
-                    { name: '@here', value: 'here' },
-                    { name: 'No ping', value: 'none' }
-                ))
 ];
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -61,18 +27,18 @@ async function registerCommands() {
             Routes.applicationCommands(process.env.CLIENT_ID),
             { body: commands }
         );
-        console.log('✅ Announcement command registered successfully');
+        console.log('Announcement command registered successfully');
     } catch (error) {
-        console.error('❌ Error registering commands:', error);
+        console.error('Error registering commands:', error);
     }
 }
 
 // Bot ready event
 client.once('ready', () => {
-    console.log(`🤖 Announcement Bot is ready!`);
-    console.log(`📝 Logged in as ${client.user.tag}`);
+    console.log(`Announcement Bot is ready!`);
+    console.log(`Logged in as ${client.user.tag}`);
     client.user.setPresence({
-        activities: [{ name: '📢 Managing Announcements', type: 4 }],
+        activities: [{ name: 'Managing Announcements', type: 4 }],
         status: 'online'
     });
 });
@@ -116,35 +82,16 @@ function createConfirmationButtons(announcementId) {
         );
 }
 
-// Create announcement embed (for DM translations only)
-function createAnnouncementEmbed(data, language = 'en') {
-    const embed = new EmbedBuilder()
-        .setColor('#245CD9')
-        .setTimestamp()
-        .setImage('https://cdn.discordapp.com/attachments/1384365774369722409/1393154694896943184/embed.png');
-    
-    if (language === 'en') {
-        embed.setTitle(data.title_en).setDescription(data.description_en);
-    } else if (language === 'de') {
-        embed.setTitle(data.title_de).setDescription(data.description_de);
-    } else if (language === 'fr') {
-        embed.setTitle(data.title_fr).setDescription(data.description_fr);
-    }
-    
-    return embed;
-}
-
 // Log announcements to dev channel
-async function logAnnouncement(user, action, announcementData) {
+async function logAnnouncement(user, action) {
     const devChannel = client.channels.cache.get(DEV_LOG_CHANNEL_ID);
     if (devChannel) {
         const logEmbed = new EmbedBuilder()
             .setColor(action === 'created' ? '#4ECDC4' : action === 'sent' ? '#00FF00' : '#FF0000')
-            .setTitle(`📢 Announcement ${action.charAt(0).toUpperCase() + action.slice(1)}`)
+            .setTitle(`Announcement ${action.charAt(0).toUpperCase() + action.slice(1)}`)
             .addFields(
-                { name: '👤 User', value: user.username, inline: true },
-                { name: '🔔 Action', value: action, inline: true },
-                { name: '📝 Title (EN)', value: announcementData.title_en || 'N/A', inline: false }
+                { name: 'User', value: user.username, inline: true },
+                { name: 'Action', value: action, inline: true }
             )
             .setTimestamp();
         
@@ -158,11 +105,10 @@ async function logTranslation(user, language) {
     if (devChannel) {
         const logEmbed = new EmbedBuilder()
             .setColor('#FFE66D')
-            .setTitle('🌍 Announcement Translation Sent')
+            .setTitle('Translation Sent')
             .addFields(
-                { name: '👤 User', value: user.username, inline: true },
-                { name: '🔤 Language', value: language === 'en' ? 'English' : language === 'de' ? 'German' : 'French', inline: true },
-                { name: '📨 Sent To', value: `DM: ${user.username}`, inline: true }
+                { name: 'User', value: user.username, inline: true },
+                { name: 'Language', value: language === 'en' ? 'English' : language === 'de' ? 'German' : 'French', inline: true }
             )
             .setTimestamp();
         
@@ -172,37 +118,90 @@ async function logTranslation(user, language) {
 
 // Handle interactions
 client.on('interactionCreate', async (interaction) => {
-    // Handle slash command
+    // Handle slash command - show modal
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'announcement') {
             // Check if user is owner
             if (interaction.user.id !== OWNER_ID) {
                 await interaction.reply({ 
-                    content: '❌ You do not have permission to use this command.', 
+                    content: 'You do not have permission to use this command.', 
                     ephemeral: true 
                 }).catch(() => {});
                 return;
             }
 
-            // Collect announcement data
+            // Create modal with text inputs that preserve formatting
+            const modal = new ModalBuilder()
+                .setCustomId('announcement_modal')
+                .setTitle('Create Announcement');
+
+            const englishInput = new TextInputBuilder()
+                .setCustomId('description_en')
+                .setLabel('English Announcement')
+                .setStyle(TextInputStyle.Paragraph)
+                .setPlaceholder('Paste your formatted announcement here...')
+                .setRequired(true);
+
+            const germanInput = new TextInputBuilder()
+                .setCustomId('description_de')
+                .setLabel('German Announcement')
+                .setStyle(TextInputStyle.Paragraph)
+                .setPlaceholder('Paste German version here...')
+                .setRequired(true);
+
+            const frenchInput = new TextInputBuilder()
+                .setCustomId('description_fr')
+                .setLabel('French Announcement')
+                .setStyle(TextInputStyle.Paragraph)
+                .setPlaceholder('Paste French version here...')
+                .setRequired(true);
+
+            const pingInput = new TextInputBuilder()
+                .setCustomId('ping_type')
+                .setLabel('Ping Type')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('Type: everyone, here, or none')
+                .setRequired(true)
+                .setMaxLength(10);
+
+            const row1 = new ActionRowBuilder().addComponents(englishInput);
+            const row2 = new ActionRowBuilder().addComponents(germanInput);
+            const row3 = new ActionRowBuilder().addComponents(frenchInput);
+            const row4 = new ActionRowBuilder().addComponents(pingInput);
+
+            modal.addComponents(row1, row2, row3, row4);
+
+            await interaction.showModal(modal);
+        }
+    }
+
+    // Handle modal submission
+    if (interaction.isModalSubmit()) {
+        if (interaction.customId === 'announcement_modal') {
+            // Get the formatted text (preserves line breaks)
             const announcementData = {
-                title_en: interaction.options.getString('title_en'),
-                description_en: interaction.options.getString('description_en'),
-                title_de: interaction.options.getString('title_de'),
-                description_de: interaction.options.getString('description_de'),
-                title_fr: interaction.options.getString('title_fr'),
-                description_fr: interaction.options.getString('description_fr'),
-                ping_type: interaction.options.getString('ping_type')
+                description_en: interaction.fields.getTextInputValue('description_en'),
+                description_de: interaction.fields.getTextInputValue('description_de'),
+                description_fr: interaction.fields.getTextInputValue('description_fr'),
+                ping_type: interaction.fields.getTextInputValue('ping_type').toLowerCase().trim()
             };
 
-            // Generate unique ID for this announcement
+            // Validate ping type
+            if (!['everyone', 'here', 'none'].includes(announcementData.ping_type)) {
+                await interaction.reply({
+                    content: 'Invalid ping type. Use: everyone, here, or none',
+                    ephemeral: true
+                }).catch(() => {});
+                return;
+            }
+
+            // Generate unique ID
             const announcementId = Date.now().toString();
-            pendingAnnouncements.set(announcementId, announcementData);
 
             const translationButtons = createTranslationButtons();
             const confirmButtons = createConfirmationButtons(announcementId);
 
-            // Show ping type in preview
+            // Show ping in preview
             let pingText = '';
             if (announcementData.ping_type === 'everyone') {
                 pingText = '\n\n||@everyone||';
@@ -210,14 +209,22 @@ client.on('interactionCreate', async (interaction) => {
                 pingText = '\n\n||@here||';
             }
 
-            // Send preview as plain text (no embed)
-            await interaction.reply({
-                content: `📋 **Announcement Preview** (No ping sent yet - this is how it will look):\n\n${announcementData.description_en}${pingText}`,
-                components: [translationButtons, confirmButtons]
+            // Send preview
+            const previewMessage = await interaction.reply({
+                content: `**Announcement Preview:**\n\n${announcementData.description_en}${pingText}`,
+                components: [translationButtons, confirmButtons],
+                fetchReply: true
             }).catch(() => {});
 
-            // Log creation
-            logAnnouncement(interaction.user, 'created', announcementData);
+            // Store with message ID
+            if (previewMessage) {
+                announcementsByMessageId.set(previewMessage.id, {
+                    ...announcementData,
+                    id: announcementId
+                });
+            }
+
+            logAnnouncement(interaction.user, 'created');
         }
     }
 
@@ -227,36 +234,39 @@ client.on('interactionCreate', async (interaction) => {
         if (interaction.customId.startsWith('translate_')) {
             const language = interaction.customId.split('_')[1];
             
+            const messageId = interaction.message.id;
+            const announcementData = announcementsByMessageId.get(messageId);
+
+            if (!announcementData) {
+                await interaction.reply({ 
+                    content: 'Could not find announcement data.', 
+                    ephemeral: true 
+                }).catch(() => {});
+                return;
+            }
+
             await interaction.reply({ 
-                content: '✅ Check your DMs for the translation!', 
+                content: 'Check your DMs!', 
                 ephemeral: true 
             }).catch(() => {});
 
-            // Find the announcement data - check both pending and sent
-            let announcementData = null;
-            
-            // First check pending announcements (from preview)
-            for (const [id, data] of pendingAnnouncements.entries()) {
-                announcementData = data;
-                break;
-            }
-            
-            // If not found, check sent announcements (from actual announcement)
-            if (!announcementData) {
-                for (const [id, data] of sentAnnouncements.entries()) {
-                    announcementData = data;
-                    break;
-                }
+            // Get correct translation
+            let translationText = '';
+            if (language === 'en') {
+                translationText = announcementData.description_en;
+            } else if (language === 'de') {
+                translationText = announcementData.description_de;
+            } else if (language === 'fr') {
+                translationText = announcementData.description_fr;
             }
 
-            // Send translation to user's DM
-            if (announcementData) {
-                const embedToSend = createAnnouncementEmbed(announcementData, language);
+            // Send as plain text
+            if (translationText) {
                 try {
-                    await interaction.user.send({ embeds: [embedToSend] });
+                    await interaction.user.send(translationText);
                     logTranslation(interaction.user, language);
                 } catch (error) {
-                    console.log('❌ Could not send DM to user');
+                    console.log('Could not send DM');
                 }
             }
         }
@@ -265,14 +275,14 @@ client.on('interactionCreate', async (interaction) => {
         if (interaction.customId.startsWith('confirm_')) {
             if (interaction.user.id !== OWNER_ID) {
                 await interaction.reply({ 
-                    content: '❌ Only the owner can confirm announcements.', 
+                    content: 'Only owner can confirm.', 
                     ephemeral: true 
                 }).catch(() => {});
                 return;
             }
 
-            const announcementId = interaction.customId.split('_')[1];
-            const announcementData = pendingAnnouncements.get(announcementId);
+            const previewMessageId = interaction.message.id;
+            const announcementData = announcementsByMessageId.get(previewMessageId);
             
             if (announcementData) {
                 const announcementChannel = client.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID);
@@ -280,7 +290,7 @@ client.on('interactionCreate', async (interaction) => {
                 if (announcementChannel) {
                     const translationButtons = createTranslationButtons();
                     
-                    // Build the announcement based on ping type
+                    // Build final content
                     let finalContent = announcementData.description_en;
                     
                     if (announcementData.ping_type === 'everyone') {
@@ -289,27 +299,24 @@ client.on('interactionCreate', async (interaction) => {
                         finalContent += '\n\n||@here||';
                     }
                     
-                    // Send announcement as plain text
-                    await announcementChannel.send({
+                    // Send announcement
+                    const sentMessage = await announcementChannel.send({
                         content: finalContent,
                         components: [translationButtons]
                     }).catch(console.error);
                     
-                    // Store the sent announcement data so translation buttons work later
-                    sentAnnouncements.set(announcementId, announcementData);
+                    // Store sent announcement
+                    if (sentMessage) {
+                        announcementsByMessageId.set(sentMessage.id, announcementData);
+                    }
                     
-                    // Update the preview message
                     await interaction.update({
-                        content: '✅ **Announcement sent successfully!**',
-                        embeds: [],
+                        content: 'Announcement sent!',
                         components: []
                     }).catch(() => {});
                     
-                    // Log the sent announcement
-                    logAnnouncement(interaction.user, 'sent', announcementData);
-                    
-                    // Clean up pending (but keep in sent)
-                    pendingAnnouncements.delete(announcementId);
+                    logAnnouncement(interaction.user, 'sent');
+                    announcementsByMessageId.delete(previewMessageId);
                 }
             }
         }
@@ -318,26 +325,21 @@ client.on('interactionCreate', async (interaction) => {
         if (interaction.customId.startsWith('cancel_')) {
             if (interaction.user.id !== OWNER_ID) {
                 await interaction.reply({ 
-                    content: '❌ Only the owner can cancel announcements.', 
+                    content: 'Only owner can cancel.', 
                     ephemeral: true 
                 }).catch(() => {});
                 return;
             }
 
-            const announcementId = interaction.customId.split('_')[1];
-            const announcementData = pendingAnnouncements.get(announcementId);
-            pendingAnnouncements.delete(announcementId);
+            const previewMessageId = interaction.message.id;
+            announcementsByMessageId.delete(previewMessageId);
             
             await interaction.update({
-                content: '❌ **Announcement cancelled.**',
-                embeds: [],
+                content: 'Cancelled.',
                 components: []
             }).catch(() => {});
 
-            // Log cancellation
-            if (announcementData) {
-                logAnnouncement(interaction.user, 'cancelled', announcementData);
-            }
+            logAnnouncement(interaction.user, 'cancelled');
         }
     }
 });
