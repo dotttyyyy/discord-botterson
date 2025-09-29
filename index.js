@@ -106,10 +106,23 @@ function createConfirmationButtons(announcementId) {
         );
 }
 
-// Create announcement embed
+// Create announcement embed (for preview only)
 function createAnnouncementEmbed(data, language = 'en') {
     const embed = new EmbedBuilder()
-        .set
+        .setColor('#245CD9')
+        .setTimestamp()
+        .setImage('https://cdn.discordapp.com/attachments/1384365774369722409/1393154694896943184/embed.png');
+    
+    if (language === 'en') {
+        embed.setTitle(data.title_en).setDescription(data.description_en);
+    } else if (language === 'de') {
+        embed.setTitle(data.title_de).setDescription(data.description_de);
+    } else if (language === 'fr') {
+        embed.setTitle(data.title_fr).setDescription(data.description_fr);
+    }
+    
+    return embed;
+}
 
 // Log announcements to dev channel
 async function logAnnouncement(user, action, announcementData) {
@@ -240,15 +253,11 @@ client.on('interactionCreate', async (interaction) => {
                 if (announcementChannel) {
                     const translationButtons = createTranslationButtons();
                     
-                    // Format the announcement text with spoilered pings at bottom
-                    const announcementText = `${announcementData.description_en}\n\n||@everyone||`;
-                    
-                    // Send announcement with buttons, no embed
+                    // Send announcement as plain text with spoilered ping at bottom
                     await announcementChannel.send({
-                        content: announcementText,
-                        components: [translationButtons],
-                        allowedMentions: { parse: ['everyone'] }
-                    }).catch(() => {});
+                        content: `${announcementData.description_en}\n\n||@everyone||`,
+                        components: [translationButtons]
+                    }).catch(console.error);
                     
                     // Update the preview message
                     await interaction.update({
