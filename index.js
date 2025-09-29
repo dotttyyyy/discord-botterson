@@ -9,8 +9,9 @@ const OWNER_ID = '1017206528928923648';
 const ANNOUNCEMENT_CHANNEL_ID = '1414421793393082461';
 const DEV_LOG_CHANNEL_ID = '1414044553312468992';
 
-// Store pending announcements
+// Store pending announcements and sent announcements
 const pendingAnnouncements = new Map();
+const sentAnnouncements = new Map();
 
 // Register slash command
 const commands = [
@@ -231,15 +232,26 @@ client.on('interactionCreate', async (interaction) => {
                 ephemeral: true 
             }).catch(() => {});
 
-            // Find the announcement data from the message
-            let embedToSend;
+            // Find the announcement data - check both pending and sent
+            let announcementData = null;
+            
+            // First check pending announcements (from preview)
             for (const [id, data] of pendingAnnouncements.entries()) {
-                embedToSend = createAnnouncementEmbed(data, language);
+                announcementData = data;
                 break;
+            }
+            
+            // If not found, check sent announcements (from actual announcement)
+            if (!announcementData) {
+                for (const [id, data] of sentAnnouncements.entries()) {
+                    announcementData = data;
+                    break;
+                }
             }
 
             // Send translation to user's DM
-            if (embedToSend) {
+            if (announcementData) {
+                const embedToSend = createAnnouncementEmbed(announcementData, language);
                 try {
                     await interaction.user.send({ embeds: [embedToSend] });
                     logTranslation(interaction.user, language);
@@ -283,6 +295,9 @@ client.on('interactionCreate', async (interaction) => {
                         components: [translationButtons]
                     }).catch(console.error);
                     
+                    // Store the sent announcement data so translation buttons work later
+                    sentAnnouncements.set(announcementId, announcementData);
+                    
                     // Update the preview message
                     await interaction.update({
                         content: '✅ **Announcement sent successfully!**',
@@ -293,7 +308,7 @@ client.on('interactionCreate', async (interaction) => {
                     // Log the sent announcement
                     logAnnouncement(interaction.user, 'sent', announcementData);
                     
-                    // Clean up
+                    // Clean up pending (but keep in sent)
                     pendingAnnouncements.delete(announcementId);
                 }
             }
