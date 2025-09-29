@@ -41,6 +41,15 @@ const commands = [
             option.setName('description_fr')
                 .setDescription('Announcement description in French')
                 .setRequired(true))
+        .addStringOption(option =>
+            option.setName('ping_type')
+                .setDescription('Choose ping type')
+                .setRequired(true)
+                .addChoices(
+                    { name: '@everyone', value: 'everyone' },
+                    { name: '@here', value: 'here' },
+                    { name: 'No ping', value: 'none' }
+                ))
 ];
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -95,7 +104,7 @@ function createConfirmationButtons(announcementId) {
         .addComponents(
             new ButtonBuilder()
                 .setCustomId(`confirm_${announcementId}`)
-                .setLabel('Confirm & Send with @everyone')
+                .setLabel('Confirm & Send')
                 .setStyle(ButtonStyle.Success)
                 .setEmoji('✅'),
             new ButtonBuilder()
@@ -106,7 +115,7 @@ function createConfirmationButtons(announcementId) {
         );
 }
 
-// Create announcement embed (for preview only)
+// Create announcement embed (for DM translations only)
 function createAnnouncementEmbed(data, language = 'en') {
     const embed = new EmbedBuilder()
         .setColor('#245CD9')
@@ -181,22 +190,28 @@ client.on('interactionCreate', async (interaction) => {
                 title_de: interaction.options.getString('title_de'),
                 description_de: interaction.options.getString('description_de'),
                 title_fr: interaction.options.getString('title_fr'),
-                description_fr: interaction.options.getString('description_fr')
+                description_fr: interaction.options.getString('description_fr'),
+                ping_type: interaction.options.getString('ping_type')
             };
 
             // Generate unique ID for this announcement
             const announcementId = Date.now().toString();
             pendingAnnouncements.set(announcementId, announcementData);
 
-            // Create preview embed
-            const previewEmbed = createAnnouncementEmbed(announcementData, 'en');
             const translationButtons = createTranslationButtons();
             const confirmButtons = createConfirmationButtons(announcementId);
 
-            // Send preview with confirmation buttons
+            // Show ping type in preview
+            let pingText = '';
+            if (announcementData.ping_type === 'everyone') {
+                pingText = '\n\n||@everyone||';
+            } else if (announcementData.ping_type === 'here') {
+                pingText = '\n\n||@here||';
+            }
+
+            // Send preview as plain text (no embed)
             await interaction.reply({
-                content: '📋 **Announcement Preview** (No ping yet - click buttons to preview translations)',
-                embeds: [previewEmbed],
+                content: `📋 **Announcement Preview** (No ping sent yet - this is how it will look):\n\n${announcementData.description_en}${pingText}`,
                 components: [translationButtons, confirmButtons]
             }).catch(() => {});
 
@@ -253,9 +268,18 @@ client.on('interactionCreate', async (interaction) => {
                 if (announcementChannel) {
                     const translationButtons = createTranslationButtons();
                     
-                    // Send announcement as plain text with spoilered ping at bottom
+                    // Build the announcement based on ping type
+                    let finalContent = announcementData.description_en;
+                    
+                    if (announcementData.ping_type === 'everyone') {
+                        finalContent += '\n\n||@everyone||';
+                    } else if (announcementData.ping_type === 'here') {
+                        finalContent += '\n\n||@here||';
+                    }
+                    
+                    // Send announcement as plain text
                     await announcementChannel.send({
-                        content: `${announcementData.description_en}\n\n||@everyone||`,
+                        content: finalContent,
                         components: [translationButtons]
                     }).catch(console.error);
                     
