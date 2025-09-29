@@ -241,12 +241,13 @@ client.on('interactionCreate', async (interaction) => {
                     const translationButtons = createTranslationButtons();
                     
                     // Format the announcement text with spoilered pings at bottom
-                    const announcementText = `${announcementData.description_en}\n\n||@everyone @here||`;
+                    const announcementText = `${announcementData.description_en}\n\n||@everyone||`;
                     
                     // Send announcement with buttons, no embed
                     await announcementChannel.send({
                         content: announcementText,
-                        components: [translationButtons]
+                        components: [translationButtons],
+                        allowedMentions: { parse: ['everyone'] }
                     }).catch(() => {});
                     
                     // Update the preview message
